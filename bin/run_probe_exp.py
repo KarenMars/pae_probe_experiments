@@ -4,23 +4,24 @@ from collections import namedtuple
 from pathlib import Path
 import sys
 
+import torch
+torch.multiprocessing.set_sharing_strategy('file_system') 
+
 from joblib import delayed, parallel_backend, Parallel
 import numpy as np
 import pandas as pd
 from pyannote.core import Segment, Timeline
 from sklearn import metrics
-from sklearn.decomposition import TruncatedSVD
+from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler
 from skorch import NeuralNetClassifier
-from skorch.callbacks import EpochScoring, GradientNormClipping, EarlyStopping
+from skorch.callbacks import EpochScoring, GradientNormClipping
+#import torch
 from torch import nn
-from operator import attrgetter
+import torch.nn.functional as F
 import yaml
-
-import torch
-torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 Utterance = namedtuple(
@@ -41,21 +42,21 @@ LIQUIDS = {'l', 'r'}
 NASALS = {'m', 'n', 'ng', 'nx'}
 OTHER = {'dx', 'hv', 'q'}
 VOCALIC = VOWELS | GLIDES | LIQUIDS | NASALS
-SPEECH = STOPS | CLOSURES | FRICATIVES | VOWELS | GLIDES | LIQUIDS | \
-         NASALS | OTHER
+SPEECH = STOPS | CLOSURES | FRICATIVES | VOWELS | GLIDES | LIQUIDS | NASALS  | OTHER
 TARGETS = SPEECH
+
 
 # Mapping from task names to target labels.
 TASK_TARGETS = {
-    'sad': SPEECH,
-    'vowel': VOWELS,
-    'sonorant': VOCALIC,
-    'fricative': FRICATIVES}
+    'sad' : SPEECH,
+    'syllable' : VOWELS,
+    'sonorant' : VOCALIC,
+    'fricative' : FRICATIVES}
 VALID_TASK_NAMES = set(TASK_TARGETS.keys())
 
 
 class MyModule(nn.Module):
-    def __init__(self, input_dim, n_hid=1, hid_dim=512, n_classes=2,
+    def __init__(self, input_dim, n_hid=2, hid_dim=512, n_classes=2,
                  dropout=0.5):
         super(MyModule, self).__init__()
         components = []
@@ -73,23 +74,20 @@ class MyModule(nn.Module):
 
 
 VALID_CLASSIFIER_NAMES = {'logistic', 'max_margin', 'nnet'}
-MAX_COMPONENTS = 400  # Keep at most this many components after SVD.
+MAX_COMPONENTS = 400 # Keep at most this many components after SVD.
 
-
-def get_classifier(clf_name, feat_dim, batch_size, device, weights):
+def get_classifier(clf_name, feat_dim, batch_size, device, weights=None):
     """Get classifier instance for training."""
     if clf_name not in VALID_CLASSIFIER_NAMES:
         raise ValueError(f'Unrecognized classifer "{clf_name}". '
                          f'Valid classifiers: {VALID_CLASSIFIER_NAMES}.')
     n_components = min(feat_dim, MAX_COMPONENTS)
     if clf_name == 'logistic':
-        clf = LogisticRegression(class_weight='balanced')
+        clf = LogisticRegression()
     elif clf_name == 'max_margin':
-        clf = SGDClassifier(class_weight='balanced')
+        clf = SGDClassifier()
     elif clf_name == 'nnet':
         # Scoring callbacks.
-        # Valid scoring parameter in:
-        # https://scikit-learn.org/stable/modules/model_evaluation.html#scoring-parameter
         callbacks = [
             ('valid_precision', EpochScoring(
                 'precision', lower_is_better=False, name='valid_precision')),
@@ -103,33 +101,30 @@ def get_classifier(clf_name, feat_dim, batch_size, device, weights):
         callbacks.append(
             ('clipping', GradientNormClipping(2.0)))
 
-        # Early stop callbacks.
-        callbacks.append(
-            ('EarlyStop', EarlyStopping()))
-
         # Instantiate our classifier.
         clf = NeuralNetClassifier(
             # Network parameters.
-            MyModule, module__n_hid=1, module__hid_dim=128,
+            MyModule, module__n_hid=2, module__hid_dim=128,
             module__input_dim=n_components, module__n_classes=2,
             # Training batch/time/etc.
-            # train_split=None,
             max_epochs=50, batch_size=batch_size, device=device,
             # Training loss.
             criterion=nn.CrossEntropyLoss,
             criterion__weight=weights,
             # Optimization parameters.
-            optimizer=torch.optim.Adam, lr=3e-4,
+            optimizer=torch.optim.Adam, lr=0.01,
             # Parallelization.
             iterator_train__shuffle=True,
             iterator_train__num_workers=4,
+            iterator_valid__shuffle=True,
             iterator_valid__num_workers=4,
-            # Scoring callbacks.
+            # Scoring cllbacks.
             callbacks=callbacks)
         print('CHECKPOINT 0')
-    clf = Pipeline([
+    clf = Pipeline(
+        [
         ('scaler', TruncatedSVD(n_components=n_components)),
-        # ('scaler', StandardScaler()),
+###        #('scaler', StandardScaler()),
         ('clf', clf)])
     print('CHECKPOINT 1')
     return clf
@@ -158,30 +153,26 @@ def load_utterances(uris_file, feats_dir, phones_dir):
     return utterances
 
 
-# To distinguish from skorch.dataset.Dataset
-Datasets = namedtuple(
+Dataset = namedtuple(
     'Dataset', ['name', 'utterances', 'step'])
 
 Task = namedtuple(
     'Task', ['name', 'target_labels', 'context_size', 'classifier',
              'batch_size'])
 
-
-class ConfigError(Exception):
-    pass
-
+class ConfigError(Exception): pass
 
 def load_task_config(fn):
     """Load task from configuration file."""
     fn = Path(fn)
     with open(fn, 'r') as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
+        config = yaml.load(f)
 
     # Batch size for neural network training.
     batch_size = config.get('batch_size', 128)
 
     # Context window size in frames.
-    context_size = config.get('context_size', 0)
+    context_size = config.get('context_size', 1)
 
     # Classifier type.
     classifier = config.get('classifier', 'logistic')
@@ -197,22 +188,22 @@ def load_task_config(fn):
             f'Encountered invalid task "{task_name}" when parsing '
             f'config file. Valid classifiers: {VALID_TASK_NAMES}')
     target_labels = TASK_TARGETS[task_name]
+    
     task = Task(task_name, target_labels, context_size, classifier, batch_size)
-
+    
     # Load partitons.
-    def _load_dsets(d, Test=False):
+    def _load_dsets(d):
         dsets = []
         for dset_name in d:
             dset = d[dset_name]
             utterances = load_utterances(
                 dset['uris'], dset['feats'], dset['phones'])
-            if Test:
-                utterances.sort(key=attrgetter('uri'))
             dsets.append(
-                Datasets(dset_name, utterances, dset['step']))
+                Dataset(dset_name, utterances, dset['step']))
         return dsets
     train_dsets = _load_dsets(config['train_data'])
-    test_dsets = _load_dsets(config['test_data'], Test=True)
+    test_dsets = _load_dsets(config['test_data'])
+    
     return task, train_dsets, test_dsets
 
 
@@ -262,15 +253,10 @@ def get_feats_targets(utterances, step, context_size, target_labels, n_jobs=1):
             f(utterance, step, context_size, target_labels)
             for utterance in utterances)
     feats, targets = zip(*res)
-
-    # Garbage collection
-    feats_tmp = np.concatenate(feats, axis=0).astype(np.float32)
-    del feats
-    feats = feats_tmp
-    targets_tmp = np.concatenate(targets, axis=0).astype(np.int64)
-    del targets
-    targets = targets_tmp
-
+    feats = np.concatenate(feats, axis=0)
+    targets = np.concatenate(targets, axis=0)
+    feats = feats.astype(np.float32)
+    targets = targets.astype(np.int64)
     return feats, targets
 
 
@@ -290,9 +276,7 @@ def add_context(feats, win_size):
     ndarray, (n_frames, feat_dim*(win_size*2 + 1))
         Features with context added.
     """
-    if win_size <= 0:
-        return feats
-    feats = np.pad(feats, [[win_size, win_size], [0, 0]], mode='edge')
+    feats = np.pad(feats, [win_size, 0], mode='edge')
     inds = np.arange(-win_size, win_size+1)
     feats = np.concatenate(
         [np.roll(feats, ind, axis=0) for ind in inds], axis=1)
@@ -328,12 +312,13 @@ def main():
             args.n_jobs)
         n_frames, feat_dim = feats.shape
         print(f'FRAMES: {n_frames}, DIM: {feat_dim}')
-
+        
         # Fit classifier.
         pos_freq = targets.mean()
         weights = np.array([1-pos_freq, pos_freq], dtype=np.float32)
         weights = torch.from_numpy(1/weights)
         weights /= weights.sum()
+        weights = None
         clf = get_classifier(
             task.classifier, feat_dim, task.batch_size, args.device, weights)
         print('CHECKPOINT 3')
@@ -347,9 +332,8 @@ def main():
             dset.utterances, dset.step, task.context_size, task.target_labels,
             args.n_jobs)
         test_data[dset.name] = {
-            'feats': feats,
-            'targets': targets}
-
+            'feats' : feats,
+            'targets' : targets}
     records = []
     for train_dset_name in sorted(models):
         clf = models[train_dset_name]
@@ -357,17 +341,16 @@ def main():
             feats = test_data[test_dset_name]['feats']
             targets = test_data[test_dset_name]['targets']
             preds = clf.predict(feats)
-
             acc = metrics.accuracy_score(targets, preds)
             precision, recall, f1, _ = metrics.precision_recall_fscore_support(
                 targets, preds, pos_label=1, average='binary')
             records.append({
-                'train': train_dset_name,
-                'test': test_dset_name,
-                'acc': acc,
-                'precision': precision,
-                'recall': recall,
-                'f1': f1})
+                'train' : train_dset_name,
+                'test' : test_dset_name,
+                'acc' : acc,
+                'precision' : precision,
+                'recall' : recall,
+                'f1' : f1})
     scores_df = pd.DataFrame(records)
     print(scores_df)
 
