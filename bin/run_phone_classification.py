@@ -1,23 +1,21 @@
 #!/usr/bin/env python
 import argparse
-from collections import namedtuple
-from pathlib import Path
-import sys
-
-from joblib import delayed, parallel_backend, Parallel
 import numpy as np
 import pandas as pd
-from pyannote.core import Segment, Timeline
+import sys
+import yaml
+
+from collections import namedtuple
+from joblib import delayed, parallel_backend, Parallel
+from operator import attrgetter
+from pathlib import Path
 from sklearn import metrics
 from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from skorch import NeuralNetClassifier
-from skorch.callbacks import EpochScoring, GradientNormClipping, EarlyStopping
+from skorch.callbacks import GradientNormClipping, EarlyStopping
 from torch import nn
-from operator import attrgetter
-import yaml
 
 import torch
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -40,22 +38,25 @@ GLIDES = {'w', 'y'}
 LIQUIDS = {'l', 'r'}
 NASALS = {'m', 'n', 'ng', 'nx'}
 OTHER = {'dx', 'hv', 'q'}
+SILENCE = {'sil'}
+# {pau + h# + epi} -> 'sil'
 VOCALIC = VOWELS | GLIDES | LIQUIDS | NASALS
 SPEECH = STOPS | CLOSURES | FRICATIVES | VOWELS | GLIDES | LIQUIDS | \
          NASALS | OTHER
-TARGETS = SPEECH
+PHONES = SPEECH | SILENCE
 
 # Mapping from task names to target labels.
 TASK_TARGETS = {
     'sad': SPEECH,
-    'vowel': VOWELS,
+    'syllable': VOWELS,
     'sonorant': VOCALIC,
-    'fricative': FRICATIVES}
+    'fricative': FRICATIVES,
+    'phone': PHONES}
 VALID_TASK_NAMES = set(TASK_TARGETS.keys())
 
 
 class MyModule(nn.Module):
-    def __init__(self, input_dim, n_hid=1, hid_dim=512, n_classes=2,
+    def __init__(self, input_dim, n_hid=1, hid_dim=512, n_classes=59,
                  dropout=0.5):
         super(MyModule, self).__init__()
         components = []
@@ -76,6 +77,42 @@ VALID_CLASSIFIER_NAMES = {'logistic', 'max_margin', 'nnet'}
 MAX_COMPONENTS = 400  # Keep at most this many components after SVD.
 
 
+def load_timit_phone_map(map_file):
+    """Returns a dictionary containing mapping from 59 phone classes to 39
+       integers.
+
+    Parameters
+    ----------
+    map_file :
+        phones.60-48-39.map file in Kaldi TIMIT Recipe.
+        (glottal stop 'q' deleted)
+    """
+    with open(map_file) as f:
+        phone_sets = list(
+            zip(*[line.strip().split() for line in f if line != "q\n"]))
+
+    phone_set_59 = set(phone_sets[0])
+    for elem in ['epi', 'h#', 'pau']:
+        phone_set_59.discard(elem)
+    phone_set_59.add('sil')
+    phone_set_59.add('q')
+    phone_set_59 = sorted(list(phone_set_59))
+    phone_to_59_int = {phone: n for n, phone in enumerate(phone_set_59)}
+
+    # Get a map from 59 phone classes to 39 classes.
+    phone_map = dict(zip(phone_sets[0], phone_sets[2]))
+    phone_map['sil'] = 'sil'
+    phone_map['q'] = 'sil'
+    phone_set_39 = sorted(list(set(phone_sets[2])))
+
+    # Map 39 phone classes to integers.
+    target_phone_to_int = {phone: n for n, phone in enumerate(phone_set_39)}
+    folded_index_map = dict()
+    for i in range(59):
+        folded_index_map[i] = target_phone_to_int[phone_map[phone_set_59[i]]]
+    return phone_to_59_int, folded_index_map
+
+
 def get_classifier(clf_name, feat_dim, batch_size, device, weights):
     """Get classifier instance for training."""
     if clf_name not in VALID_CLASSIFIER_NAMES:
@@ -85,19 +122,22 @@ def get_classifier(clf_name, feat_dim, batch_size, device, weights):
     if clf_name == 'logistic':
         clf = LogisticRegression(class_weight='balanced')
     elif clf_name == 'max_margin':
-        clf = SGDClassifier(class_weight='balanced')
+        clf = SGDClassifier(
+            tol=1e-4, early_stopping=True, validation_fraction=0.2,
+            class_weight='balanced')
     elif clf_name == 'nnet':
         # Scoring callbacks.
         # Valid scoring parameter in:
         # https://scikit-learn.org/stable/modules/model_evaluation.html#scoring-parameter
-        callbacks = [
-            ('valid_precision', EpochScoring(
-                'precision', lower_is_better=False, name='valid_precision')),
-            ('valid_recall', EpochScoring(
-                'recall', lower_is_better=False, name='valid_recall')),
-            ('valid_f1', EpochScoring(
-                'f1', lower_is_better=False, name='valid_f1')),
-            ]
+        # callbacks = [
+        #     ('valid_precision', EpochScoring(
+        #         'precision', lower_is_better=False, name='valid_precision')),
+        #     ('valid_recall', EpochScoring(
+        #         'recall', lower_is_better=False, name='valid_recall')),
+        #     ('valid_f1', EpochScoring(
+        #         'f1', lower_is_better=False, name='valid_f1')),
+        #     ]
+        callbacks = []
 
         # Gradient callbacks.
         callbacks.append(
@@ -111,7 +151,7 @@ def get_classifier(clf_name, feat_dim, batch_size, device, weights):
         clf = NeuralNetClassifier(
             # Network parameters.
             MyModule, module__n_hid=1, module__hid_dim=128,
-            module__input_dim=n_components, module__n_classes=2,
+            module__input_dim=n_components, module__n_classes=59,
             # Training batch/time/etc.
             # train_split=None,
             max_epochs=50, batch_size=batch_size, device=device,
@@ -226,15 +266,10 @@ def _get_feats_targets(utt, step, context_size, target_labels):
     names = ['onset', 'offset', 'label']
     segs = pd.read_csv(
         utt.phones_path, header=None, names=names, delim_whitespace=True)
-    segs = segs[segs.label.isin(target_labels)]
-    speech_t = Timeline(
-        [Segment(seg.onset, seg.offset)
-         for seg in segs.itertuples(index=False)])
-    speech_t = speech_t.support()
     targets = np.zeros_like(times, dtype=np.int32)
-    for seg in speech_t:
-        bi, ei = np.searchsorted(times, (seg.start, seg.end))
-        targets[bi:ei+1] = 1
+    for seg in segs.itertuples(index=False):
+        bi, ei = np.searchsorted(times, (seg.onset, seg.offset))
+        targets[bi:ei+1] = phone_to_59_int[seg.label]
     return feats, targets
 
 
@@ -302,7 +337,8 @@ def add_context(feats, win_size):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='run SAD probing experiment', add_help=True)
+        description='run frame-level phone recognition probing experiment',
+        add_help=True)
     parser.add_argument(
         'config', type=Path, help='path to data config file')
     parser.add_argument(
@@ -330,9 +366,9 @@ def main():
         print(f'FRAMES: {n_frames}, DIM: {feat_dim}')
 
         # Fit classifier.
-        pos_freq = targets.mean()
-        weights = np.array([1-pos_freq, pos_freq], dtype=np.float32)
-        weights = torch.from_numpy(1/weights)
+        weights = (1 / np.bincount(targets)).astype(np.float32)
+        weights[weights == np.inf] = 0
+        weights = torch.from_numpy(weights)
         weights /= weights.sum()
         clf = get_classifier(
             task.classifier, feat_dim, task.batch_size, args.device, weights)
@@ -357,20 +393,34 @@ def main():
             feats = test_data[test_dset_name]['feats']
             targets = test_data[test_dset_name]['targets']
             preds = clf.predict(feats)
+            folded_targets = [folded_index_map[x] for x in targets]
+            folded_preds = [folded_index_map[x] for x in preds]
 
-            acc = metrics.accuracy_score(targets, preds)
+            # Calculate accuracy
+            # Leave glottal stops and general silence as they are
+            idx_nums = []
+            for i, elem in enumerate(folded_targets):
+                if elem != 30:
+                    idx_nums.append(i)
+            folded_targets = [folded_targets[val] for val in idx_nums]
+            folded_preds = [folded_preds[val] for val in idx_nums]
+
+            acc = metrics.accuracy_score(folded_targets, folded_preds)
             precision, recall, f1, _ = metrics.precision_recall_fscore_support(
-                targets, preds, pos_label=1, average='binary')
+                folded_targets, folded_preds, average='weighted')
             records.append({
                 'train': train_dset_name,
                 'test': test_dset_name,
                 'acc': acc,
                 'precision': precision,
                 'recall': recall,
-                'f1': f1})
+                'weighted f1': f1
+                })
     scores_df = pd.DataFrame(records)
     print(scores_df)
 
 
 if __name__ == '__main__':
+    phone_to_59_int, folded_index_map = load_timit_phone_map(
+        '../../phones.60-48-39.map')
     main()
