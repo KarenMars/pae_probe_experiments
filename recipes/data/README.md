@@ -22,25 +22,25 @@ run:
     python3 prepare.py
 
 This will iterate over the corpora, converting the audio files to 16 kHz,
-monochannel FLAC and the phones files to HTK labels files.
+monochannel WAV and the phones files to HTK labels files.
 
 
 Directory structure
 -------------------
 After running ``prepare.py``, you should see the following directory structure:
 
-- ``ctimit/flac/``  --  CTIMIT FLAC files
+- ``ctimit/wav/``  --  CTIMIT WAV files
 - ``ctimit/phones/``  --  CTIMIT phone-level segmentation, stored as HTK label
   files
-- ``ffmtimit/flac/``  --  FFTIMIT FLAC files
+- ``ffmtimit/wav/``  --  FFTIMIT WAV files
 - ``ffmtimit/phones/``  --  FFMTIMIT phone-level segmentation
-- ``ntimit/flac/``  --  NTIMIT FLAC files
+- ``ntimit/wav/``  --  NTIMIT WAV files
 - ``ntimit/phones/``  --  NTIMIT phone-level segmentation
-- ``stctimit/flac/``  --  STCTIMIT FLAC files
+- ``stctimit/wav/``  --  STCTIMIT WAV files
 - ``stctimit/phones/``  --  STCTIMIT phone-level segmentation
-- ``timit/flac/``  --  TIMIT FLAC files
+- ``timit/wav/``  --  TIMIT WAV files
 - ``timit/phones/``  --  TIMIT phone-level segmentation
-- ``wtimit/flac/``  --  WTIMIT FLAC files
+- ``wtimit/wav/``  --  WTIMIT WAV files
 - ``wtimit/phones/``  --  WTIMIT phone-level segmentation
 - ``lists/phones.60-48-39.map``  --  mapping between canonical TIMIT phone sets
 - ``lists/test_core.ids``  --  listing of recordings in TIMIT core test set
@@ -51,12 +51,12 @@ After running ``prepare.py``, you should see the following directory structure:
 
 File formats
 ------------
-### FLAC files
+### WAV files
 
 For each corpus, for each combination of speaker/sentence, there is a 16 kHz,
-monochannel FLAC file located at:
+monochannel WAV file located at:
 
-    <CORPUS>/flac/<SPEAKER>_<SENT>.flac
+    <CORPUS>/wav/<SPEAKER>_<SENT>.wav
 
 where:
 
@@ -64,7 +64,7 @@ where:
 - SPEAKER  --  speaker of sentence; e.g., ``MJSR0``
 - SENT  --  sentence; e.g., ``SX204``
 
-FLAC files are converted from the original distribution format (WAV, FLAC, or
+WAV files are converted from the original distribution format (WAV, FLAC, or
 headerless raw files) using SoX.
 
 
@@ -89,7 +89,7 @@ files:
 - the offset of the final phone **ALWAYS** corresponds to the duration of the
   recording
 
-The naming convention is the same as for FLAC files.
+The naming convention is the same as for WAV files.
 
 
 ### .ids files

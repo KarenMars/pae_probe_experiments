@@ -57,7 +57,7 @@ class Converter(ABC):
         self.path = path
 
     def convert_audio_files(self, dest_dir, n_jobs=1):
-        """Convert audio files to 16 kHz, monochannel FLAC under
+        """Convert audio files to 16 kHz, monochannel WAV under
         ``dest_dir``.
 
         Parameters
@@ -75,19 +75,19 @@ class Converter(ABC):
             for src_path in sorted(self.audio_paths):
                 speaker_uri = src_path.parts[-2].upper()
                 sent_uri = src_path.stem.upper()
-                dest_flac_path = dest_dir / f'{speaker_uri}_{sent_uri}.flac'
-                yield src_path, dest_flac_path
+                dest_wav_path = dest_dir / f'{speaker_uri}_{sent_uri}.wav'
+                yield src_path, dest_wav_path
         pool.starmap(self.convert_audio_file, args_gen())
 
     @classmethod
     @abstractmethod
-    def convert_audio_file(cls, src_audio_path, dest_flac_path):
+    def convert_audio_file(cls, src_audio_path, dest_wav_path):
         """Convert audio file at ``src_audio_path`` to 16 kHz, monochannel
-        FLAC file at ``dest_flac_path``.
+        WAV file at ``dest_wav_path``.
         """
         pass
 
-    def convert_phones_files(self, dest_dir, flac_dir=None, n_jobs=1):
+    def convert_phones_files(self, dest_dir, wav_dir=None, n_jobs=1):
         """Convert phones files to HTK label files under ``dest_dir``.
 
         Parameters
@@ -95,8 +95,8 @@ class Converter(ABC):
         dest_dir : Path
             Path to destination directory.
 
-        flac_dir : Path, optional
-            Path to directory containing corresponding FLAC files. Used to
+        wav_dir : Path, optional
+            Path to directory containing corresponding WAV files. Used to
             set offsets of final phones.
             (Default: None)
 
@@ -111,10 +111,10 @@ class Converter(ABC):
                 speaker_uri = phones_path.parts[-2].upper()
                 sent_uri = phones_path.stem.upper()
                 lab_path = dest_dir / f'{speaker_uri}_{sent_uri}.lab'
-                yield phones_path, lab_path, flac_dir
+                yield phones_path, lab_path, wav_dir
         pool.starmap(self.convert_phones_file, args_gen())
 
-    def convert_phones_file(self, phones_path, lab_path, flac_dir=None):
+    def convert_phones_file(self, phones_path, lab_path, wav_dir=None):
         """Convert phones file at ``phones_path`` to HTK label file at
         ``lab_path``.
         """
@@ -129,9 +129,9 @@ class Converter(ABC):
                 segs.append([onset, offset, label])
 
         # Correct offset of final segment to recording duration.
-        if flac_dir is not None:
-            flac_path = Path(flac_dir, lab_path.stem + '.flac')
-            segs[-1][1] = librosa.get_duration(filename=flac_path)
+        if wav_dir is not None:
+            wav_path = Path(wav_dir, lab_path.stem + '.wav')
+            segs[-1][1] = librosa.get_duration(filename=wav_path)
 
         # Write to HTK label file.
         with open(lab_path, 'w') as f:
@@ -187,11 +187,11 @@ class Converter(ABC):
 class TIMITConverter(Converter):
     """Converter for TIMIT (LDC93S1)."""
     @classmethod
-    def convert_audio_file(cls, src_audio_path, dest_flac_path):
+    def convert_audio_file(cls, src_audio_path, dest_wav_path):
         """Convert audio file at ``src_audio_path`` to 16 kHz, monochannel
-        FLAC file at ``dest_flac_path``.
+        WAV file at ``dest_wav_path``.
         """
-        cmd = ['sox', str(src_audio_path), str(dest_flac_path)]
+        cmd = ['sox', str(src_audio_path), str(dest_wav_path)]
         subprocess.run(cmd, check=True)
 
     @property
@@ -214,11 +214,11 @@ class TIMITConverter(Converter):
 class NTIMITConverter(Converter):
     """Converter for NTIMIT (LDC93S2)."""
     @classmethod
-    def convert_audio_file(cls, src_audio_path, dest_flac_path):
+    def convert_audio_file(cls, src_audio_path, dest_wav_path):
         """Convert audio file at ``src_audio_path`` to 16 kHz, monochannel
-        FLAC file at ``dest_flac_path``.
+        WAV file at ``dest_wav_path``.
         """
-        cmd = ['sox', str(src_audio_path), str(dest_flac_path)]
+        cmd = ['sox', str(src_audio_path), str(dest_wav_path)]
         subprocess.run(cmd, check=True)
 
     @property
@@ -241,11 +241,11 @@ class NTIMITConverter(Converter):
 class CTIMITConverter(Converter):
     """Converter for CTIMIT (LDC96S30)."""
     @classmethod
-    def convert_audio_file(cls, src_audio_path, dest_flac_path):
+    def convert_audio_file(cls, src_audio_path, dest_wav_path):
         """Convert audio file at ``src_audio_path`` to 16 kHz, monochannel
-        FLAC file at ``dest_flac_path``.
+        WAV file at ``dest_wav_path``.
         """
-        cmd = ['sox', str(src_audio_path), str(dest_flac_path),
+        cmd = ['sox', str(src_audio_path), str(dest_wav_path),
                'rate', '16000']
         subprocess.run(cmd, check=True)
 
@@ -269,16 +269,16 @@ class CTIMITConverter(Converter):
 class WTIMITConverter(Converter):
     """Converter for WTIMIT (LDC2010S02)."""
     @classmethod
-    def convert_audio_file(cls, src_audio_path, dest_flac_path):
+    def convert_audio_file(cls, src_audio_path, dest_wav_path):
         """Convert audio file at ``src_audio_path`` to 16 kHz, monochannel
-        FLAC file at ``dest_flac_path``.
+        WAV file at ``dest_wav_path``.
         """
         cmd = ['sox',
                '-r', '16000',
                '-e', 'signed',
                '-b', '16',
                '-c', '1',
-               str(src_audio_path), str(dest_flac_path)]
+               str(src_audio_path), str(dest_wav_path)]
         subprocess.run(cmd, check=True)
 
     @property
@@ -301,11 +301,11 @@ class WTIMITConverter(Converter):
 class FFMTIMITConverter(Converter):
     """Converter for FFMTIMIT (LDC96S32)."""
     @classmethod
-    def convert_audio_file(cls, src_audio_path, dest_flac_path):
+    def convert_audio_file(cls, src_audio_path, dest_wav_path):
         """Convert audio file at ``src_audio_path`` to 16 kHz, monochannel
-        FLAC file at ``dest_flac_path``.
+        WAV file at ``dest_wav_path``.
         """
-        cmd = ['sox', str(src_audio_path), str(dest_flac_path)]
+        cmd = ['sox', str(src_audio_path), str(dest_wav_path)]
         subprocess.run(cmd, check=True)
 
     @property
@@ -328,7 +328,7 @@ class FFMTIMITConverter(Converter):
 class STCTIMITConverter(Converter):
     """Converter for STCTIMIT (LDC2008S03)."""
     def convert_audio_files(self, dest_dir, n_jobs=1):
-        """Convert audio files to 16 kHz, monochannel FLAC under ``dest_dir``.
+        """Convert audio files to 16 kHz, monochannel WAV under ``dest_dir``.
 
         Parameters
         ----------
@@ -344,16 +344,16 @@ class STCTIMITConverter(Converter):
         def args_gen():
             for src_path in sorted(self.audio_paths):
                 dialect, speaker_uri, sent_uri = src_path.stem.split('_')
-                dest_flac_path = Path(dest_dir, f'{speaker_uri}_{sent_uri}.flac')
-                yield src_path, dest_flac_path
+                dest_wav_path = Path(dest_dir, f'{speaker_uri}_{sent_uri}.wav')
+                yield src_path, dest_wav_path
         pool.starmap(self.convert_audio_file, args_gen())
 
     @classmethod
-    def convert_audio_file(cls, src_audio_path, dest_flac_path):
+    def convert_audio_file(cls, src_audio_path, dest_wav_path):
         """Convert audio file at ``src_audio_path`` to 16 kHz, monochannel
-        FLAC file at ``dest_flac_path``.
+        WAV file at ``dest_wav_path``.
         """
-        cmd = ['sox', str(src_audio_path), str(dest_flac_path)]
+        cmd = ['sox', str(src_audio_path), str(dest_wav_path)]
         subprocess.run(cmd, check=True)
 
     @property
@@ -410,14 +410,14 @@ def main():
             continue
         converter = CONVERTERS[corpus](corpus_dir)
 
-        # Convert audio to 16 kHz FLAC.
-        flac_dir = Path(THIS_DIR, corpus, 'flac')
-        converter.convert_audio_files(flac_dir, args.n_jobs)
+        # Convert audio to 16 kHz WAV.
+        wav_dir = Path(THIS_DIR, corpus, 'wav')
+        converter.convert_audio_files(wav_dir, args.n_jobs)
 
         # Convert phones files to HTK label files.
         if corpus != 'stctimit':
             phones_dir =  Path(THIS_DIR, corpus, 'phones')
-            converter.convert_phones_files(phones_dir, flac_dir, args.n_jobs)
+            converter.convert_phones_files(phones_dir, wav_dir, args.n_jobs)
 
     # STCTIMIT doest not include phones/words files. However, it is aligned
     # to TIMIT to within one sample, so reuse TIMIT label files.
