@@ -325,9 +325,6 @@ class FFMTIMITConverter(Converter):
         return 'wav'
 
 
-
-
-
 class STCTIMITConverter(Converter):
     """Converter for STCTIMIT (LDC2008S03)."""
     def convert_audio_files(self, dest_dir, n_jobs=1):
@@ -346,7 +343,8 @@ class STCTIMITConverter(Converter):
         pool = multiprocessing.Pool(n_jobs)
         def args_gen():
             for src_path in sorted(self.audio_paths):
-                dest_flac_path = Path(dest_dir, src_path.stem + '.flac')
+                dialect, speaker_uri, sent_uri = src_path.stem.split('_')
+                dest_flac_path = Path(dest_dir, f'{speaker_uri}_{sent_uri}.flac')
                 yield src_path, dest_flac_path
         pool.starmap(self.convert_audio_file, args_gen())
 
@@ -387,10 +385,10 @@ class STCTIMITConverter(Converter):
 # STCTIMIT is special.
 
 CONVERTERS = {
-#    'timit' : TIMITConverter,
-#    'ntimit' : NTIMITConverter,
-#    'ctimit' : CTIMITConverter,
-#    'wtimit' : WTIMITConverter,
+    'timit' : TIMITConverter,
+    'ntimit' : NTIMITConverter,
+    'ctimit' : CTIMITConverter,
+    'wtimit' : WTIMITConverter,
     'ffmtimit' : FFMTIMITConverter,
     'stctimit' : STCTIMITConverter,
 }
