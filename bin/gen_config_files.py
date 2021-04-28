@@ -1,131 +1,78 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
+"""Generate configuration files needed for experimnts."""
 import argparse
-import os
-import sys
-import yaml
 from pathlib import Path
+import sys
+
+import yaml
+
+
+PROBING_TASKS = ['sad', 'vowel', 'sonorant', 'fricative', 'phone']
+CLASSIFIERS = ['logistic', 'max_margin', 'nnet']
+CORPORA = ['ctimit', 'ffmtimit', 'ntimit', 'stctimit', 'timit', 'wtimit']
 
 
 def main():
     parser = argparse.ArgumentParser(
         'generate configuration files', add_help=True)
     parser.add_argument(
-        'feats_dir', nargs=None,
+        'feats_dir', metavar='feats-dir', type=Path,
         help='directory of extracted features')
     parser.add_argument(
-        'config_dir', nargs=None,
+        'model', help='name of model')
+    parser.add_argument(
+        'config_dir', metavar='config-dir', type=Path,
         help='output directory for config files')
     parser.add_argument(
-        'df', nargs='+',
-        help='path to TIMIT variants')
+        'data_dir', metavar='data-dir', type=Path,
+        help='directory containing processed TIMIT variants')
     parser.add_argument(
-        '--context_size', nargs=None, default=0, type=int,
-        help='number of frames in each side as context to features \
-              (default: %(default)s)')
+        '--context-size', metavar='CONTEXT', default=0, type=int,
+        help='include CONTEXT frames on either side of each frame as '
+             'context (default: %(default)s)')
     parser.add_argument(
-        '--batch_size', nargs=None, default=1024, type=int,
-        help='number of training examples used in one iteration \
-              (default: %(default)s)')
+        '--batch-size', metavar='BATCH', default=1024, type=int,
+        help='when training MLP, use batches of BATCH examples '
+             '(default: %(default)s)')
     parser.add_argument(
-        '--step', nargs=None, default=0.01, type=float, metavar='SECONDS',
-        help='frame step in seconds (default: %(default)s)')
-
+        '--step', metavar='SECONDS', default=0.01, type=float,
+        help='frame step size in seconds (default: %(default)s)')
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
     args = parser.parse_args()
 
-    os.makedirs(args.config_dir, exist_ok=True)
+    args.config_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine parameters for configuration files.
-    for probing_task in ['sad', 'vowel', 'sonorant', 'fricative', 'phone']:
-        for clf in ['logistic', 'max_margin', 'nnet']:
-            data = dict(
-                task=probing_task,
-                classifier=clf,
-                context_size=args.context_size,
-                batch_size=args.batch_size,
-                train_data=dict(
-                    timit=dict(
-                        uris=args.df[0]+'/train.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/timit',
-                        phones=args.df[0]+'/phones'
-                        ),
-                    ntimit=dict(
-                        uris=args.df[1]+'/train.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/ntimit',
-                        phones=args.df[1]+'/phones'
-                        ),
-                    ctimit=dict(
-                        uris=args.df[2]+'/train.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/ctimit',
-                        phones=args.df[2]+'/phones'
-                        ),
-                    ffmtimit=dict(
-                        uris=args.df[3]+'/train.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/ffmtimit',
-                        phones=args.df[3]+'/phones'
-                        ),
-                    stctimit=dict(
-                        uris=args.df[4]+'/train.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/stctimit',
-                        phones=args.df[4]+'/phones'
-                        ),
-                    wtimit=dict(
-                        uris=args.df[5]+'/train.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/wtimit',
-                        phones=args.df[5]+'/phones'
-                        )
-                    ),
-                test_data=dict(
-                    timit=dict(
-                        uris=args.df[0]+'/test_full.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/timit',
-                        phones=args.df[0]+'/phones'
-                        ),
-                    ntimit=dict(
-                        uris=args.df[1]+'/test_full.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/ntimit',
-                        phones=args.df[1]+'/phones'
-                        ),
-                    ctimit=dict(
-                        uris=args.df[2]+'/test_full.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/ctimit',
-                        phones=args.df[2]+'/phones'
-                        ),
-                    ffmtimit=dict(
-                        uris=args.df[3]+'/test_full.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/ffmtimit',
-                        phones=args.df[3]+'/phones'
-                        ),
-                    stctimit=dict(
-                        uris=args.df[4]+'/test_full.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/stctimit',
-                        phones=args.df[4]+'/phones'
-                        ),
-                    wtimit=dict(
-                        uris=args.df[5]+'/test_full.ids',
-                        step=args.step,
-                        feats=args.feats_dir+'/wtimit',
-                        phones=args.df[5]+'/phones'
-                        )
-                    )
-                )
-
-            fn = Path('configs/tasks')/f'{probing_task}_{clf}.yaml'
-            with open(fn, 'w') as config_file:
-                yaml.dump(data, config_file, default_flow_style=False)
+    data = []
+    for task in PROBING_TASKS:
+        for clf in CLASSIFIERS:
+            train_data = {}
+            test_data = {}
+            for corpus in CORPORA:
+                feats_dir = Path(args.feats_dir, corpus, args.model)
+                phones_dir = Path(args.data_dir, corpus, 'phones')
+                train_data[corpus] = {
+                    'uris' : str(args.data_dir / 'lists/train.ids'),
+                    'step' : args.step,
+                    'feats' : str(feats_dir),
+                    'phones' : str(phones_dir)}
+                test_data[corpus] = {
+                    'uris' : str(args.data_dir / 'lists/test_full.ids'),
+                    'step' : args.step,
+                    'feats' : str(feats_dir),
+                    'phones' : str(phones_dir)}
+            data = {
+                'task' : task,
+                'classifier' : clf,
+                'context_size' : args.context_size,
+                'batch_size' : args.batch_size,
+                'train_data' : train_data,
+                'test_data' : test_data}
+            yaml_path = args.config_dir / f'{task}_{clf}.yaml'
+            with open(yaml_path, 'w') as f:
+                yaml.dump(data, f, default_flow_style=False)
 
 
 if __name__ == '__main__':
