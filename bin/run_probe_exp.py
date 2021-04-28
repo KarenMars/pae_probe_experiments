@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 import argparse
 from collections import namedtuple
+from operator import attrgetter
 from pathlib import Path
+import re
 import sys
 
 from joblib import delayed, parallel_backend, Parallel
@@ -12,14 +14,12 @@ from sklearn import metrics
 from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from skorch import NeuralNetClassifier
 from skorch.callbacks import EpochScoring, GradientNormClipping, EarlyStopping
+import torch
 from torch import nn
-from operator import attrgetter
 import yaml
 
-import torch
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
@@ -54,10 +54,11 @@ TASK_TARGETS = {
 VALID_TASK_NAMES = set(TASK_TARGETS.keys())
 
 
-class MyModule(nn.Module):
+class MLP(nn.Module):
+
     def __init__(self, input_dim, n_hid=1, hid_dim=512, n_classes=2,
                  dropout=0.5):
-        super(MyModule, self).__init__()
+        super(MLP, self).__init__()
         components = []
         sizes = [input_dim] + [hid_dim]*n_hid
         for in_dim, out_dim in zip(sizes[:-1], sizes[1:]):
@@ -76,7 +77,7 @@ VALID_CLASSIFIER_NAMES = {'logistic', 'max_margin', 'nnet'}
 MAX_COMPONENTS = 400  # Keep at most this many components after SVD.
 
 
-def get_classifier(clf_name, feat_dim, batch_size, device, weights):
+def get_classifier(clf_name, feat_dim, batch_size, weights):
     """Get classifier instance for training."""
     if clf_name not in VALID_CLASSIFIER_NAMES:
         raise ValueError(f'Unrecognized classifer "{clf_name}". '
@@ -87,9 +88,9 @@ def get_classifier(clf_name, feat_dim, batch_size, device, weights):
     elif clf_name == 'max_margin':
         clf = SGDClassifier(class_weight='balanced')
     elif clf_name == 'nnet':
-        # Scoring callbacks.
-        # Valid scoring parameter in:
-        # https://scikit-learn.org/stable/modules/model_evaluation.html#scoring-parameter
+        # Scoring callbacks. Supported skorch callbacks:
+        #
+        #     https://skorch.readthedocs.io/en/stable/callbacks.html
         callbacks = [
             ('valid_precision', EpochScoring(
                 'precision', lower_is_better=False, name='valid_precision')),
@@ -110,11 +111,12 @@ def get_classifier(clf_name, feat_dim, batch_size, device, weights):
         # Instantiate our classifier.
         clf = NeuralNetClassifier(
             # Network parameters.
-            MyModule, module__n_hid=1, module__hid_dim=128,
+            MLP, module__n_hid=1,
+            module__hid_dim=128,
             module__input_dim=n_components, module__n_classes=2,
             # Training batch/time/etc.
             # train_split=None,
-            max_epochs=50, batch_size=batch_size, device=device,
+            max_epochs=50, batch_size=batch_size,
             # Training loss.
             criterion=nn.CrossEntropyLoss,
             criterion__weight=weights,
@@ -126,12 +128,17 @@ def get_classifier(clf_name, feat_dim, batch_size, device, weights):
             iterator_valid__num_workers=4,
             # Scoring callbacks.
             callbacks=callbacks)
-        print('CHECKPOINT 0')
+
+        # Ensure ANSI escape sequences (e.g., colors) are stripped from log
+        # output before printing. Ensures output is clean if redirected to
+        # file.
+        def print_scrubbed(txt):
+            txt = re.sub(r'\x1b\[\d+m', '', txt)
+            print(txt)
+        clf.set_params(callbacks__print_log__sink=print_scrubbed)
     clf = Pipeline([
         ('scaler', TruncatedSVD(n_components=n_components)),
-        # ('scaler', StandardScaler()),
         ('clf', clf)])
-    print('CHECKPOINT 1')
     return clf
 
 
@@ -200,19 +207,19 @@ def load_task_config(fn):
     task = Task(task_name, target_labels, context_size, classifier, batch_size)
 
     # Load partitons.
-    def _load_dsets(d, Test=False):
+    def _load_dsets(d, test=False):
         dsets = []
         for dset_name in d:
             dset = d[dset_name]
             utterances = load_utterances(
                 dset['uris'], dset['feats'], dset['phones'])
-            if Test:
+            if test:
                 utterances.sort(key=attrgetter('uri'))
             dsets.append(
                 Datasets(dset_name, utterances, dset['step']))
         return dsets
     train_dsets = _load_dsets(config['train_data'])
-    test_dsets = _load_dsets(config['test_data'], Test=True)
+    test_dsets = _load_dsets(config['test_data'], test=True)
     return task, train_dsets, test_dsets
 
 
@@ -302,19 +309,18 @@ def add_context(feats, win_size):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='run SAD probing experiment', add_help=True)
+        description='run binary classification probes', add_help=True)
     parser.add_argument(
-        'config', type=Path, help='path to data config file')
+        'config', type=Path, help='path to task config')
     parser.add_argument(
-        '--device', nargs=None, default='cuda:1', metavar='DEVICE',
-        help='pytorch device id (default: (default)s)')
-    parser.add_argument(
-        '--n_jobs', nargs=None, default=1, type=int, metavar='JOBS',
+        '--n-jobs', nargs=None, default=1, type=int, metavar='JOBS',
         help='number of parallel jobs (default: %(default)s)')
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
     args = parser.parse_args()
+
+    # Load config.
     task, train_dsets, test_dsets = load_task_config(args.config)
 
     print('Training classifiers...')
@@ -335,8 +341,8 @@ def main():
         weights = torch.from_numpy(1/weights)
         weights /= weights.sum()
         clf = get_classifier(
-            task.classifier, feat_dim, task.batch_size, args.device, weights)
-        print('CHECKPOINT 3')
+            task.classifier, feat_dim, task.batch_size, weights)
+        print('Fitting...')
         clf.fit(feats, targets)
         models[dset.name] = clf
 
