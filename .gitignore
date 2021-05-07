@@ -130,3 +130,7 @@ dmypy.json
 
 # Misc
 *~
+recipes/data/*timit
+recipes/feats
+recipes/exp/*/configs/tasks/
+logs/

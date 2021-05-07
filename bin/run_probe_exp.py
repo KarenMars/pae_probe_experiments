@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+"""Run binary clasification probing experiment."""
 import argparse
 from collections import namedtuple
 from operator import attrgetter
@@ -9,7 +10,6 @@ import sys
 from joblib import delayed, parallel_backend, Parallel
 import numpy as np
 import pandas as pd
-from pyannote.core import Segment, Timeline
 from sklearn import metrics
 from sklearn.decomposition import TruncatedSVD
 from sklearn.linear_model import LogisticRegression, SGDClassifier
@@ -40,22 +40,91 @@ GLIDES = {'w', 'y'}
 LIQUIDS = {'l', 'r'}
 NASALS = {'m', 'n', 'ng', 'nx'}
 OTHER = {'dx', 'hv', 'q'}
+SILENCE = {'sil'}
 VOCALIC = VOWELS | GLIDES | LIQUIDS | NASALS
 SPEECH = STOPS | CLOSURES | FRICATIVES | VOWELS | GLIDES | LIQUIDS | \
          NASALS | OTHER
-TARGETS = SPEECH
+PHONES = SPEECH | SILENCE
 
-# Mapping from task names to target labels.
+
+# TRAIN/TEST: use original phone set
+# EVAL: convert predicted/reference labels to reduced set
+
+# Phones remapped from original TIMIT set to the 39 phone set usually used
+# when scoring PER/classification accuracy (e.g., in Kaldi recipes).
+TIMIT_39_REMAPS = {
+    'ao' : 'aa',
+    'ax' : 'ah',
+    'ax-h' : 'ah',
+    'axr' : 'er',
+    'bcl' : 'sil',
+    'dcl' : 'sil',
+    'el' : 'l',
+    'em' : 'm',
+    'en' : 'n',
+    'eng' : 'ng',
+    'epi' : 'sil',
+    'gcl' : 'sil',
+    'h#' : 'sil',
+    'hv' : 'hh',
+    'ix' : 'ih',
+    'kcl' : 'sil',
+    'nx' : 'n',
+    'pau' : 'sil',
+    'pcl' : 'sil',
+    'q' : 'sil',
+    'tcl' : 'sil',
+    'ux' : 'uw',
+    'zh' : 'sh'}
+
+PHONES39 = {TIMIT_39_REMAPS.get(phone, phone) for phone in PHONES}
+
+
+# Mapping from binary classification task names to target labels.
 TASK_TARGETS = {
     'sad': SPEECH,
     'vowel': VOWELS,
     'sonorant': VOCALIC,
     'fricative': FRICATIVES}
-VALID_TASK_NAMES = set(TASK_TARGETS.keys())
+VALID_TASK_NAMES = set(TASK_TARGETS.keys()) | {'phone'}
+
+
+def get_class_mapping(phones, target_phones=None):
+    """Return mapping from phones to integer ids of corresponding classes.
+
+    If ``target_phones`` is specified, maps the elements of ``target_phones``
+    to 1 and all other phones to 0. Otherwise, returns a bijection between
+    ``phones`` and ``range(len(phones))``.
+
+    Parameters
+    ----------
+    phones : iterable of str
+        Phones.
+
+    target_phones : iterable of str, optional
+        All phones in ``target_phones`` will be mapped to 1. All other phones
+        to 0.
+        (Default: None)
+
+    Returns
+    -------
+    phone_to_id : dict
+        Mapping from phones to non-negative integer ids.
+    """
+    if target_phones is None:
+        return {phone:n for n, phone in enumerate(sorted(phones))}
+    phone_to_id = {}
+    for phone in sorted(phones):
+        phone_to_id[phone] = 1 if phone in target_phones else 0
+    return phone_to_id
+
+
+# TRAIN/TEST: use original phone set
+# EVAL: convert predicted/reference labels to reduced set
+
 
 
 class MLP(nn.Module):
-
     def __init__(self, input_dim, n_hid=1, hid_dim=512, n_classes=2,
                  dropout=0.5):
         super(MLP, self).__init__()
@@ -77,7 +146,8 @@ VALID_CLASSIFIER_NAMES = {'logistic', 'max_margin', 'nnet'}
 MAX_COMPONENTS = 400  # Keep at most this many components after SVD.
 
 
-def get_classifier(clf_name, feat_dim, batch_size, weights):
+def get_classifier(clf_name, feat_dim, batch_size, n_classes, weights,
+                   sgd_kwargs={}):
     """Get classifier instance for training."""
     if clf_name not in VALID_CLASSIFIER_NAMES:
         raise ValueError(f'Unrecognized classifer "{clf_name}". '
@@ -86,36 +156,39 @@ def get_classifier(clf_name, feat_dim, batch_size, weights):
     if clf_name == 'logistic':
         clf = LogisticRegression(class_weight='balanced')
     elif clf_name == 'max_margin':
-        clf = SGDClassifier(class_weight='balanced')
+        clf = SGDClassifier(class_weight='balanced', **sgd_kwargs)
     elif clf_name == 'nnet':
-        # Scoring callbacks. Supported skorch callbacks:
-        #
-        #     https://skorch.readthedocs.io/en/stable/callbacks.html
-        callbacks = [
-            ('valid_precision', EpochScoring(
-                'precision', lower_is_better=False, name='valid_precision')),
-            ('valid_recall', EpochScoring(
-                'recall', lower_is_better=False, name='valid_recall')),
-            ('valid_f1', EpochScoring(
-                'f1', lower_is_better=False, name='valid_f1')),
-            ]
+        # Scoring callbacks for binary clasification tasks.
+        callbacks = []
+        if n_classes == 2:
+            callbacks.append(
+                ('valid_precision',
+                 EpochScoring('precision', lower_is_better=False,
+                              name='valid_precision')))
+            callbacks.append(
+                ('valid_recall',
+                 EpochScoring('recall', lower_is_better=False,
+                              name='valid_recall')))
+            callbacks.append(
+                ('valid_f1',
+                 EpochScoring('f1', lower_is_better=False, name='valid_f1')))
+        else:
+            callbacks = []
 
-        # Gradient callbacks.
+        # Clip gradients to L2-norm of 2.0
         callbacks.append(
             ('clipping', GradientNormClipping(2.0)))
 
-        # Early stop callbacks.
+        # Allow early stopping.
         callbacks.append(
             ('EarlyStop', EarlyStopping()))
 
         # Instantiate our classifier.
         clf = NeuralNetClassifier(
             # Network parameters.
-            MLP, module__n_hid=1,
-            module__hid_dim=128,
-            module__input_dim=n_components, module__n_classes=2,
+            MLP, module__n_hid=1, module__hid_dim=128,
+            module__input_dim=n_components, module__n_classes=n_classes,
             # Training batch/time/etc.
-            # train_split=None,
             max_epochs=50, batch_size=batch_size,
             # Training loss.
             criterion=nn.CrossEntropyLoss,
@@ -170,8 +243,8 @@ Datasets = namedtuple(
     'Dataset', ['name', 'utterances', 'step'])
 
 Task = namedtuple(
-    'Task', ['name', 'target_labels', 'context_size', 'classifier',
-             'batch_size'])
+    'Task', ['name', 'phone_to_id', 'id_to_phone', 'context_size',
+             'classifier', 'batch_size'])
 
 
 class ConfigError(Exception):
@@ -198,13 +271,16 @@ def load_task_config(fn):
             f'config file. Valid classifiers: {VALID_CLASSIFIER_NAMES}')
 
     # Task.
-    task_name = config.get('task', 'sad')
+    task_name = config.get('task', None)
     if task_name not in VALID_TASK_NAMES:
         raise ConfigError(
             f'Encountered invalid task "{task_name}" when parsing '
             f'config file. Valid classifiers: {VALID_TASK_NAMES}')
-    target_labels = TASK_TARGETS[task_name]
-    task = Task(task_name, target_labels, context_size, classifier, batch_size)
+    target_phones = TASK_TARGETS.get(task_name, None)
+    phone_to_id = get_class_mapping(PHONES, target_phones)
+    id_to_phone = {n:phone for phone, n in phone_to_id.items()}
+    task = Task(task_name, phone_to_id, id_to_phone, context_size, classifier,
+                batch_size)
 
     # Load partitons.
     def _load_dsets(d, test=False):
@@ -223,29 +299,26 @@ def load_task_config(fn):
     return task, train_dsets, test_dsets
 
 
-def _get_feats_targets(utt, step, context_size, target_labels):
+def _get_feats_targets(utt, step, context_size, phone_to_id):
     # Load features from .npy file.
     feats = np.load(utt.feats_path)
     feats = add_context(feats, context_size)
     times = np.arange(len(feats))*step
 
-    # Assign positive label to frames corresponding to target phones.
+    # Load segments.
     names = ['onset', 'offset', 'label']
     segs = pd.read_csv(
         utt.phones_path, header=None, names=names, delim_whitespace=True)
-    segs = segs[segs.label.isin(target_labels)]
-    speech_t = Timeline(
-        [Segment(seg.onset, seg.offset)
-         for seg in segs.itertuples(index=False)])
-    speech_t = speech_t.support()
+
+    # Convert to frame-level labels.
     targets = np.zeros_like(times, dtype=np.int32)
-    for seg in speech_t:
-        bi, ei = np.searchsorted(times, (seg.start, seg.end))
-        targets[bi:ei+1] = 1
+    for seg in segs.itertuples(index=False):
+        bi, ei = np.searchsorted(times, (seg.onset, seg.offset))
+        targets[bi:ei+1] = phone_to_id[seg.label]
     return feats, targets
 
 
-def get_feats_targets(utterances, step, context_size, target_labels, n_jobs=1):
+def get_feats_targets(utterances, step, context_size, phone_to_id, n_jobs=1):
     """Returns features/targets for utterances.
 
     Parameters
@@ -259,14 +332,16 @@ def get_feats_targets(utterances, step, context_size, target_labels, n_jobs=1):
     context_size : int
         Size of context window in frames.
 
-    target_labels : iterable of str
-        Labels corresponding to target classes.
+    phone_to_id : dict
+        Mapping from phone to integer ids.
+
+    n_jobs : int, optional
+        Number of parallel jobs to use,
     """
-    target_labels = set(target_labels)
     with parallel_backend('multiprocessing', n_jobs=n_jobs):
         f = delayed(_get_feats_targets)
         res = Parallel()(
-            f(utterance, step, context_size, target_labels)
+            f(utterance, step, context_size, phone_to_id)
             for utterance in utterances)
     feats, targets = zip(*res)
 
@@ -313,6 +388,9 @@ def main():
     parser.add_argument(
         'config', type=Path, help='path to task config')
     parser.add_argument(
+        '--seed', metavar='SEED', default=11238421, type=int,
+        help='seed for RNG')
+    parser.add_argument(
         '--n-jobs', nargs=None, default=1, type=int, metavar='JOBS',
         help='number of parallel jobs (default: %(default)s)')
     if len(sys.argv) == 1:
@@ -320,7 +398,10 @@ def main():
         sys.exit(1)
     args = parser.parse_args()
 
-    # Load config.
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    print('Loading task config...')
     task, train_dsets, test_dsets = load_task_config(args.config)
 
     print('Training classifiers...')
@@ -330,18 +411,26 @@ def main():
 
         # Load appropriate training set.
         feats, targets = get_feats_targets(
-            dset.utterances, dset.step, task.context_size, task.target_labels,
+            dset.utterances, dset.step, task.context_size, task.phone_to_id,
             args.n_jobs)
         n_frames, feat_dim = feats.shape
         print(f'FRAMES: {n_frames}, DIM: {feat_dim}')
 
         # Fit classifier.
-        pos_freq = targets.mean()
-        weights = np.array([1-pos_freq, pos_freq], dtype=np.float32)
-        weights = torch.from_numpy(1/weights)
+        weights = (1 / np.bincount(targets)).astype(np.float32)
+        weights[weights == np.inf] = 0
+        weights = torch.from_numpy(weights)
         weights /= weights.sum()
+        n_classes = weights.size
+        sgd_kwargs = {'n_jobs' : args.n_jobs}
+        if task.name == 'phones':
+            sgd_kwargs = {'tol' : 1e-4,
+                          'early_stopping' : True,
+                          'validation_fraction' : 0.2 }
         clf = get_classifier(
-            task.classifier, feat_dim, task.batch_size, weights)
+            task.classifier, feat_dim, task.batch_size, n_classes, weights,
+            sgd_kwargs)
+
         print('Fitting...')
         clf.fit(feats, targets)
         models[dset.name] = clf
@@ -350,7 +439,7 @@ def main():
     test_data = {}
     for dset in test_dsets:
         feats, targets = get_feats_targets(
-            dset.utterances, dset.step, task.context_size, task.target_labels,
+            dset.utterances, dset.step, task.context_size, task.phone_to_id,
             args.n_jobs)
         test_data[dset.name] = {
             'feats': feats,
@@ -360,13 +449,37 @@ def main():
     for train_dset_name in sorted(models):
         clf = models[train_dset_name]
         for test_dset_name in test_data:
+            # Predict frame-level classes.
             feats = test_data[test_dset_name]['feats']
             targets = test_data[test_dset_name]['targets']
             preds = clf.predict(feats)
 
-            acc = metrics.accuracy_score(targets, preds)
-            precision, recall, f1, _ = metrics.precision_recall_fscore_support(
-                targets, preds, pos_label=1, average='binary')
+            # Calculate accuracy, precision, recall, and F1.
+            if task.name != 'phone':
+                # For binary classification tasks, we just care about
+                # precision, recall, F1 for target class (e.g., speech,
+                # sonorants, fricatives).
+                acc = metrics.accuracy_score(targets, preds)
+                precision, recall, f1, _ = metrics.precision_recall_fscore_support(
+                    targets, preds, pos_label=1, average='binary')
+            else:
+                # For phone classification, we compute macro-averaged precision,
+                # recall, and F1 using the standard 39-phone reduction of the
+                # TIMIT phone set. Since our original classifier was trained
+                # using the full set, we need to remap both the reference
+                # and system labels.
+                def _to_timit39(ids):
+                    phones = [task.id_to_phone[id] for id in ids]
+                    phones = [TIMIT_39_REMAPS.get(phone, phone)
+                              for phone in phones]
+                    return phones
+                targets = _to_timit39(targets)
+                preds = _to_timit39(preds)
+                acc = metrics.accuracy_score(targets, preds)
+                precision, recall, f1, _ = metrics.precision_recall_fscore_support(
+                    targets, preds, average='weighted')
+
+            # Update dataframe.
             records.append({
                 'train': train_dset_name,
                 'test': test_dset_name,
@@ -375,6 +488,8 @@ def main():
                 'recall': recall,
                 'f1': f1})
     scores_df = pd.DataFrame(records)
+    scores_df = scores_df[
+        ['train', 'test', 'acc', 'precision', 'recall', 'f1']]
     print(scores_df)
 
 
