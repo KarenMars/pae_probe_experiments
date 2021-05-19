@@ -3,8 +3,7 @@
 
 To extract features using a pretrained mockingjay model:
 
-    python gen_mockingjay_feats.py --use_gpu state-500000.pt feats_dir/ \
-        fn1.wav fn2.wav fn3.wav ...
+    python gen_mockingjay_feats.py --use-gpu state-500000.pt feats_dir/ fn1.wav fn2.wav fn3.wav ...
 
 which will load a pretrained model from the checkpoint located at
 
@@ -30,6 +29,9 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from transformer.nn_transformer import TRANSFORMER
+
+# This is a module from the MockingJay repo; that repo must be on your
+# PYTHONPATH for this to be found.
 from utility.audio import extract_feature
 
 
@@ -56,7 +58,7 @@ def extract_feats_to_file(npy_path, audio_path, mockingjay_model):
         Path to audio file to extract features for.
 
     mockingjay_model : transformer.nn_transformer.TRANSFORMER
-        mackingjay model.
+        Pretrained MockingJay model.
     """
     dev = get_device(mockingjay_model)
 
@@ -79,20 +81,23 @@ def main():
     parser = argparse.ArgumentParser(
         description='generate mockingjay features', add_help=True)
     parser.add_argument(
-        '--use_gpu', default=False, action='store_true', help='use GPU')
+        '--use-gpu', default=False, action='store_true', help='use GPU')
     parser.add_argument(
-        'modelf', type=Path, help='mockingjay checkpoint')
+        'model', type=Path, help='mockingjay checkpoint')
     parser.add_argument(
-        'feats_dir', type=Path,
+        'feats_dir', metavar='feats-dir', type=Path,
         help='path to output directory for .npy files')
     parser.add_argument(
         'afs', nargs='*', type=Path, help='audio files to be processed')
+    parser.add_argument(
+        '--disable-progress', default=False, action='store_true',
+        help='disable progress bar')
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
     args = parser.parse_args()
 
-    os.makedirs(args.feats_dir, exist_ok=True)
+    args.feats_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine device for computation.
     use_gpu = args.use_gpu and torch.cuda.is_available()
@@ -100,7 +105,7 @@ def main():
     device = torch.device(device)
 
     options = {
-        'ckpt_file'     : args.modelf,
+        'ckpt_file'     : args.model,
         'load_pretrain' : 'True',
         'no_grad'       : 'True',
         'dropout'       : 'default',
@@ -108,25 +113,22 @@ def main():
         'spec_aug_prev' : 'True',
         'weighted_sum'  : 'False',
         'select_layer'  : -1,
-        'permute_input' : 'False',
-        # Set to False to take input as (B, T, D), otherwise take (T, B, D)
+        'permute_input' : 'False',  # Set to False to take input as (B, T, D), otherwise take (T, B, D)
     }
 
-    # setup the transformer model
-    # copying a param with shape torch.Size([768, 480]) from checkpoint
-    # set inp_dim to 0 for auto setup
+    # inp_dim=0 forces automated setup of the transformer.
     mockingjay_model = TRANSFORMER(options=options, inp_dim=0)
     mockingjay_model = mockingjay_model.to(device)
 
     # Process.
-    with tqdm(total=len(args.afs)) as pbar:
+    with tqdm(total=len(args.afs), disable=args.disable_progress) as pbar:
         for fn in args.afs:
             npy_path = Path(args.feats_dir, fn.stem + '.npy')
             try:
                 extract_feats_to_file(npy_path, fn, mockingjay_model)
             except RuntimeError:
-                tqdm.write(f'ERROR: CUDA OOM error when processing "{fn}". \
-                             Skipping.')
+                tqdm.write(f'ERROR: CUDA OOM error when processing "{fn}". '
+                           f'Skipping.')
                 torch.cuda.empty_cache()
             pbar.update(1)
 
