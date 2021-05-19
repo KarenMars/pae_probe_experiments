@@ -33,7 +33,7 @@ fi
 
 
 ##############################################################################
-# Run binary classification tasks.
+# Run classification tasks.
 ##############################################################################
 if [ $stage -le 1 ]; then
     echo "$0: Preparing config files..."
@@ -43,7 +43,7 @@ fi
 
 
 if [ $stage -le 2 ]; then
-    echo "$0: Running binary classification experiments..."
+    echo "$0: Running classification experiments..."
     for config in `ls configs/tasks/*.yaml`; do
 	bn=${config##*/}
 	name=${bn%.yaml}
