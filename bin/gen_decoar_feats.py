@@ -29,7 +29,7 @@ from speech_reps.featurize import DeCoARFeaturizer
 from tqdm import tqdm
 
 
-
+def extract_feats_to_file(npy_path, audio_path, featurizer):
     """Extract features to file.
 
     Parameters
@@ -39,6 +39,8 @@ from tqdm import tqdm
 
     audio_path : Path
         Path to audio file to extract features for.
+
+    featurizer : TODO
     """
     # Returns a (time, feature) NumPy array
     data = featurizer.file_to_feats(audio_path)
