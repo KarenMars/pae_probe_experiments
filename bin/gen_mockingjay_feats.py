@@ -11,7 +11,7 @@ which will load a pretrained model from the checkpoint located at
 
 apply it to the audio files ``fn1.wav, ``fn2.wav``, ``fn3.wav``, ..., and for
 each recording output frame-level features to a corresponding ``.npy`` file
-located under the directory ``feats_dir``. The flag ``--use_gpu`` instructs
+located under the directory ``feats_dir``. The flag ``--use-gpu`` instructs
 the script to use the GPU, if free.
 
 For each audio file, this script outputs a NumPy ``.npy`` file containing an
@@ -21,7 +21,6 @@ is, the ``i``-th frame of features corresponds to an offset of ``i*0.0125``
 seconds.
 """
 import argparse
-import os
 from pathlib import Path
 import sys
 
@@ -81,14 +80,14 @@ def main():
     parser = argparse.ArgumentParser(
         description='generate mockingjay features', add_help=True)
     parser.add_argument(
-        '--use-gpu', default=False, action='store_true', help='use GPU')
-    parser.add_argument(
         'model', type=Path, help='mockingjay checkpoint')
     parser.add_argument(
         'feats_dir', metavar='feats-dir', type=Path,
         help='path to output directory for .npy files')
     parser.add_argument(
         'afs', nargs='*', type=Path, help='audio files to be processed')
+    parser.add_argument(
+        '--use-gpu', default=False, action='store_true', help='use GPU')
     parser.add_argument(
         '--disable-progress', default=False, action='store_true',
         help='disable progress bar')
