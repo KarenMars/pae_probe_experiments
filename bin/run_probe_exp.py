@@ -172,8 +172,6 @@ def get_classifier(clf_name, feat_dim, batch_size, n_classes, weights,
             callbacks.append(
                 ('valid_f1',
                  EpochScoring('f1', lower_is_better=False, name='valid_f1')))
-        else:
-            callbacks = []
 
         # Clip gradients to L2-norm of 2.0
         callbacks.append(
@@ -418,10 +416,10 @@ def main():
 
         # Fit classifier.
         weights = (1 / np.bincount(targets)).astype(np.float32)
+        n_classes = weights.size
         weights[weights == np.inf] = 0
         weights = torch.from_numpy(weights)
         weights /= weights.sum()
-        n_classes = weights.size
         sgd_kwargs = {'n_jobs' : args.n_jobs}
         if task.name == 'phones':
             sgd_kwargs = {'tol' : 1e-4,
