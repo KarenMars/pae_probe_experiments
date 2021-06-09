@@ -1,14 +1,11 @@
 joblib
-fairseq==0.10.1
+git+git://github.com/pytorch/fairseq.git@66e1803c60272602c719a5ba75acef1c530066ef
 pandas
-pyannote.core
 librosa
 wurlitzer
 skorch==0.9.0
 numpy
 tqdm
 torch==1.7.0
-mxnet==1.7.0.post1
 PyYAML>=5.1
 scikit_learn
-git+git://github.com/s3prl/s3prl@v0.1.0
