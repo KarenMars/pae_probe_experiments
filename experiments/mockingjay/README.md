@@ -8,3 +8,5 @@ Instructions
 
   and save to ``checkpoints/states-500000.ckpt``.
 - Run ``run.sh``.
+
+  We use the implementation from [S3PRL toolkit](https://github.com/s3prl/s3prl) and the _LinearLarge-libri_ checkpoint.
