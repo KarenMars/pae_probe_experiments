@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+"""Extract acoustic features using ``librosa``.
+
+To extract features using ``librosa``, run:
+
+    python gen_librosa_feats.py feats_dir/ fn1.wav fn2.wav fn3.wav ...
+
+which will extract mel filterbank features for the audio files ``fn1.wav,
+``fn2.wav``, ``fn3.wav``, ..., and for each recording output frame-level
+features to a corresponding ``.npy`` file located under the directory
+``feats_dir``.
+
+For each audio file, this script outputs a NumPy ``.npy`` file containing an
+``num_frames`` x ``num_features`` array of frame-level features. These
+correspond to frames sampled every 10 ms starting from an offset of 0; that is,
+the ``i``-th frame of features corresponds to an offset of ``i*0.010`` seconds.
+
+"""
 import argparse
 from functools import partial
 from multiprocessing import Pool
@@ -86,6 +103,9 @@ def main():
         help='load additional keyword arguments for librosa feature function '
              'from YAML config FILE (default: %(default)s)')
     parser.add_argument(
+        '--disable-progress', default=False, action='store_true',
+        help='disable progress bar')
+    parser.add_argument(
         '--n_jobs', nargs=None, default=1, type=int, metavar='JOBS',
         help='number of parallel jobs (default: %(default)s)')
     if len(sys.argv) == 1:
@@ -116,7 +136,7 @@ def main():
     f = partial(
         extract_feats, feats_dir=args.feats_dir, sr=args.sr, feats_fn=feats_fn,
         **kwargs)
-    with tqdm(total=len(audio_paths)) as pbar:
+    with tqdm(total=len(audio_paths), disable=args.disable_progress) as pbar:
         for _ in pool.imap(f, audio_paths):
             pbar.update(1)
 

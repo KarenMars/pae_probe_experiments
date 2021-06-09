@@ -1,0 +1,17 @@
+# Path to location of TIMIT (LDC93S1).
+timit: '/data/corpora/LDC/LDC93S1'
+
+# Path to location of NTIMIT (LDC93S2).
+ntimit: '/data/corpora/LDC/LDC93S2'
+
+# Path to location of CTIMIT (LDC96S30).
+ctimit: '/data/corpora/LDC/LDC96S30'
+
+# Path to location of FFMTIMIT (LDC96S32).
+ffmtimit: '/data/corpora/LDC/LDC96S32'
+
+# Path to location of STCTIMIT (LDC2008S03).
+stctimit: '/data/corpora/LDC/LDC2008S03'
+
+# Path to location of WTIMIT (LDC2010S02).
+wtimit: '/data/corpora/LDC/LDC2010S02'
