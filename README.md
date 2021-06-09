@@ -8,12 +8,12 @@ This repository contains code for replicating the results from the following pap
 1. Create and activate a new virtual environment.
 2. Clone the repo:
 
-	git clone https://github.com/nryant/pae_probe_experiments.git
-	cd pae_probe_experiments/
+       git clone https://github.com/nryant/pae_probe_experiments.git
+       cd pae_probe_experiments/
 	
 3. Install the required Python packages:
 
-	pip install -r requirements
+       pip install -r requirements
 ## Preparing the data
 In order to run these experiments, you first need to obtain and process the various TIMIT corpora. Instructions for obtaining the corpora from LDC and running the processing pipeline are contained in `data/README.md`.
 
@@ -35,16 +35,16 @@ For instance, to reproduce the results for wav2vec:
 
 This will download the pre-trained [Fairseq](https://github.com/pytorch/fairseq) wav2vec model, extract frame-level features for each TIMIT variant, and run the full set of in-domain and cross-domain experiments for each probing task. Results will be stored to `logs/`; e.g.:
 
-	logs/extract_wav2vec-large_ctimit.stderr
-	logs/extract_wav2vec-large_ctimit.stdout
-	logs/extract_wav2vec-large_ffmtimit.stderr
-	logs/extract_wav2vec-large_ffmtimit.stdout
-	...
-	logs/fricative_logistic.stderr
-	logs/fricative_logistic.stdout
-	logs/fricative_max_margin.stderr
-	logs/fricative_max_margin.stdout
-	...
+    logs/extract_wav2vec-large_ctimit.stderr
+    logs/extract_wav2vec-large_ctimit.stdout
+    logs/extract_wav2vec-large_ffmtimit.stderr
+    logs/extract_wav2vec-large_ffmtimit.stdout
+    ...
+    logs/fricative_logistic.stderr
+    logs/fricative_logistic.stdout
+    logs/fricative_max_margin.stderr
+    logs/fricative_max_margin.stdout
+    ...
 
 
 ## Reproducibility
