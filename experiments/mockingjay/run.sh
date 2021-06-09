@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash 
 
 set -e  # Exit on error
 
@@ -9,7 +9,7 @@ FEATS_DIR=../../feats/
 ##############################################################################
 # Configuration
 ##############################################################################
-nj=40   # Number of parallal jobs for CPU operations.
+nj=40   # Number of parallel jobs for CPU operations.
 stage=0
 
 . path.sh

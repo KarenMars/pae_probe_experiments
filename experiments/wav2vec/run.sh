@@ -1,10 +1,9 @@
-#!/usr/bin/env bash
-
+#!/bin/bash
+ 
 set -e  # Exit on error
 
 DATA_DIR=../../data/
 FEATS_DIR=../../feats/
-MODEL_NAME=vq-wav2vec_kmeans_roberta
 
 
 ##############################################################################
@@ -21,37 +20,26 @@ mkdir -p logs/
 ##############################################################################
 # Extract features
 ##############################################################################
-W2V_MODEL=checkpoints/vq-wav2vec_kmeans.pt
-ROBERTA_MODEL=checkpoints/bert_kmeans.pt
-ROBERTA_VOCAB=checkpoints/dict.txt
+W2V_MODEL=checkpoints/wav2vec_large.pt
 if [ $stage -le 0 ]; then
-    mkdir -p checkpoints
     if [ ! -f $W2V_MODEL ]; then
-        echo "Downloading vq-wav2vec checkpoint..."
-	curl -#o $W2V_MODEL https://dl.fbaipublicfiles.com/fairseq/wav2vec/vq-wav2vec_kmeans.pt
+        echo "Downloading wav2vec checkpoint..."
+        mkdir -p checkpoints
+	curl -#o $W2V_MODEL https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_large.pt
     fi
-    if [ ! -f $ROBERTA_MODEL ]; then
-        echo "Downloading RoBERTa model and vocabulary..."
-	curl -#o checkpoints/bert_kmeans.tar https://dl.fbaipublicfiles.com/fairseq/wav2vec/bert_kmeans.tar
-	cd checkpoints/
-	tar -xf bert_kmeans.tar
-	rm bert_kmeans.tar
-	cd ..
-    fi    
 fi
 
 
 if [ $stage -le 1 ]; then
     for corpus in ctimit ffmtimit ntimit stctimit timit wtimit; do
-        echo "Extracting features vq-wav2vec-kmeans + RoBERTa features for ${corpus}..."
+        echo "Extracting wav2vec-large features for ${corpus}..."
         export CUDA_VISIBLE_DEVICES=`free-gpu`
         gen_wav2vec_feats.py \
             --use-gpu --disable-progress \
-	    --roberta $ROBERTA_MODEL --vocab $ROBERTA_VOCAB \
-            $W2V_MODEL $FEATS_DIR/$corpus/$name \
+            $W2V_MODEL $FEATS_DIR/$corpus/wav2vec-large/ \
             $DATA_DIR/${corpus}/wav/*.wav \
-            > logs/extract_${MODEL_NAME}_${corpus}.stdout \
-            2> logs/extract_${MODEL_NAME}_${corpus}.stderr
+            > logs/extract_wav2vec-large_${corpus}.stdout \
+            2> logs/extract_wav2vec-large_${corpus}.stderr
 done
 fi
 
@@ -63,7 +51,7 @@ if [ $stage -le 2 ]; then
     echo "$0: Preparing config files..."
     gen_config_files.py \
 	--step 0.010 \
-        $FEATS_DIR $MODEL_NAME configs/tasks $DATA_DIR
+        $FEATS_DIR wav2vec-large configs/tasks $DATA_DIR
 fi
 
 

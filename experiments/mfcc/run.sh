@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash 
 
 DATA_DIR=../../data/
 FEATS_DIR=../../feats/
@@ -6,7 +6,7 @@ FEATS_DIR=../../feats/
 ##############################################################################
 # Configuration
 ##############################################################################
-nj=40   # Number of parallal jobs for CPU operations.
+nj=40   # Number of parallel jobs for CPU operations.
 stage=0
 
 . path.sh
@@ -30,6 +30,7 @@ if [ $stage -le 0 ]; then
             2> logs/extract_mfcc_${corpus}.stderr
     done
 fi
+
 
 ##############################################################################
 # Run binary classification tasks.

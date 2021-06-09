@@ -48,13 +48,11 @@ import sys
 import fairseq
 from fairseq.data import Dictionary
 from fairseq.models.roberta import RobertaModel
-from fairseq.models.wav2vec import Wav2VecModel
 from fairseq.tasks.masked_lm import MaskedLMTask
 import librosa
 import numpy as np
 import torch
 from tqdm import tqdm
-from wurlitzer import pipes
 
 
 activation = {}
@@ -238,18 +236,12 @@ def main():
         # wav2vec 2.0.
         model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task(
             [str(args.model)], arg_overrides={"data": args.vocab.parent})
-        wav2vec_model = model[0]
-        wav2vec_model.eval()
-        wav2vec_model = wav2vec_model.to(device)
     else:
         # Vanilla wav2vec.
-        wav2vec_cp = torch.load(args.model, map_location=torch.device('cpu'))
-        with pipes() as (stderr, stdout):
-            wav2vec_model = Wav2VecModel.build_model(
-                wav2vec_cp['args'], task=None)
-        wav2vec_model.load_state_dict(wav2vec_cp['model'])
-        wav2vec_model.eval()
-        wav2vec_model = wav2vec_model.to(device)
+        model, cfg, task = fairseq.checkpoint_utils.load_model_ensemble_and_task([str(args.model)])
+    wav2vec_model = model[0]
+    wav2vec_model.eval()
+    wav2vec_model = wav2vec_model.to(device)
 
     # Process.
     with tqdm(total=len(args.afs), disable=args.disable_progress) as pbar:

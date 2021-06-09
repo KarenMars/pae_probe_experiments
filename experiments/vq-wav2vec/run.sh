@@ -1,10 +1,10 @@
-#!/usr/bin/env bash
+#!/bin/bash 
 
 set -e  # Exit on error
 
 DATA_DIR=../../data/
 FEATS_DIR=../../feats/
-MODEL_NAME=wav2vec2-large
+MODEL_NAME=vq-wav2vec_kmeans_roberta
 
 
 ##############################################################################
@@ -21,29 +21,34 @@ mkdir -p logs/
 ##############################################################################
 # Extract features
 ##############################################################################
-W2V2_MODEL=checkpoints/wav2vec2_big_960h.pt
-DICT=checkpoints/dict.ltr.txt
+W2V_MODEL=checkpoints/vq-wav2vec_kmeans.pt
+ROBERTA_MODEL=checkpoints/bert_kmeans.pt
+ROBERTA_VOCAB=checkpoints/dict.txt
 if [ $stage -le 0 ]; then
-    if [ ! -f $W2V2_MODEL ]; then
-        echo "Downloading wav2vec 2.0 checkpoint..."
-        mkdir -p checkpoints
-	curl -#o $W2V2_MODEL https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_big_960h.pt
+    mkdir -p checkpoints
+    if [ ! -f $W2V_MODEL ]; then
+        echo "Downloading vq-wav2vec checkpoint..."
+	curl -#o $W2V_MODEL https://dl.fbaipublicfiles.com/fairseq/wav2vec/vq-wav2vec_kmeans.pt
     fi
-    if [ ! -f $DICT ]; then
-	echo "Downloading wav2vec 2.0 vocab..."
-	curl -#o $DICT https://dl.fbaipublicfiles.com/fairseq/wav2vec/dict.ltr.txt
-    fi
+    if [ ! -f $ROBERTA_MODEL ]; then
+        echo "Downloading RoBERTa model and vocabulary..."
+	curl -#o checkpoints/bert_kmeans.tar https://dl.fbaipublicfiles.com/fairseq/wav2vec/bert_kmeans.tar
+	cd checkpoints/
+	tar -xf bert_kmeans.tar
+	rm bert_kmeans.tar
+	cd ..
+    fi    
 fi
 
 
 if [ $stage -le 1 ]; then
     for corpus in ctimit ffmtimit ntimit stctimit timit wtimit; do
-        echo "Extracting wav2vec 2.0 features for ${corpus}..."
+        echo "Extracting features vq-wav2vec-kmeans + RoBERTa features for ${corpus}..."
         export CUDA_VISIBLE_DEVICES=`free-gpu`
         gen_wav2vec_feats.py \
             --use-gpu --disable-progress \
-	    --wav2vec2 --vocab $DICT \
-	    $W2V2_MODEL $FEATS_DIR/$corpus/${MODEL_NAME} \
+	    --roberta $ROBERTA_MODEL --vocab $ROBERTA_VOCAB \
+            $W2V_MODEL $FEATS_DIR/$corpus/${MODEL_NAME} \
             $DATA_DIR/${corpus}/wav/*.wav \
             > logs/extract_${MODEL_NAME}_${corpus}.stdout \
             2> logs/extract_${MODEL_NAME}_${corpus}.stderr
@@ -56,9 +61,8 @@ fi
 ##############################################################################
 if [ $stage -le 2 ]; then
     echo "$0: Preparing config files..."
-    # NOTE: Wav2vec 2.0 uses step size of 20 ms.
     gen_config_files.py \
-	--step 0.020 \
+	--step 0.010 \
         $FEATS_DIR $MODEL_NAME configs/tasks $DATA_DIR
 fi
 

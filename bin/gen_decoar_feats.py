@@ -72,7 +72,6 @@ def main():
     # Determine device for computation.
     use_gpu = args.use_gpu and mx.test_utils.list_gpus()
     device = 0 if use_gpu else None
-    print(device)
     
     # Load the model on device
     featurizer = DeCoARFeaturizer(args.model, gpu=device)

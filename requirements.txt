@@ -1,8 +1,7 @@
 joblib
-git+git://github.com/pytorch/fairseq.git@66e1803c60272602c719a5ba75acef1c530066ef
+git+git://github.com/pytorch/fairseq.git@2fd9d8a972794ba919174baf0d1828a5a4c626f3
 pandas
 librosa
-wurlitzer
 skorch==0.9.0
 numpy
 tqdm

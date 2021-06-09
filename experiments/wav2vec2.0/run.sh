@@ -1,9 +1,10 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 set -e  # Exit on error
 
 DATA_DIR=../../data/
 FEATS_DIR=../../feats/
+MODEL_NAME=wav2vec2-large
 
 
 ##############################################################################
@@ -20,26 +21,32 @@ mkdir -p logs/
 ##############################################################################
 # Extract features
 ##############################################################################
-W2V_MODEL=checkpoints/wav2vec_large.pt
+W2V2_MODEL=checkpoints/wav2vec2_big_960h.pt
+DICT=checkpoints/dict.ltr.txt
 if [ $stage -le 0 ]; then
-    if [ ! -f $W2V_MODEL ]; then
-        echo "Downloading wav2vec checkpoint..."
+    if [ ! -f $W2V2_MODEL ]; then
+        echo "Downloading wav2vec 2.0 checkpoint..."
         mkdir -p checkpoints
-	curl -#o $W2V_MODEL https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_large.pt
+	curl -#o $W2V2_MODEL https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_big_960h.pt
+    fi
+    if [ ! -f $DICT ]; then
+	echo "Downloading wav2vec 2.0 vocab..."
+	curl -#o $DICT https://dl.fbaipublicfiles.com/fairseq/wav2vec/dict.ltr.txt
     fi
 fi
 
 
 if [ $stage -le 1 ]; then
     for corpus in ctimit ffmtimit ntimit stctimit timit wtimit; do
-        echo "Extracting wav2vec-large features for ${corpus}..."
+        echo "Extracting wav2vec 2.0 features for ${corpus}..."
         export CUDA_VISIBLE_DEVICES=`free-gpu`
         gen_wav2vec_feats.py \
             --use-gpu --disable-progress \
-            $W2V_MODEL $FEATS_DIR/$corpus/wav2vec-large/ \
+	    --wav2vec2 --vocab $DICT \
+	    $W2V2_MODEL $FEATS_DIR/$corpus/${MODEL_NAME} \
             $DATA_DIR/${corpus}/wav/*.wav \
-            > logs/extract_wav2vec-large_${corpus}.stdout \
-            2> logs/extract_wav2vec-large_${corpus}.stderr
+            > logs/extract_${MODEL_NAME}_${corpus}.stdout \
+            2> logs/extract_${MODEL_NAME}_${corpus}.stderr
 done
 fi
 
@@ -49,9 +56,10 @@ fi
 ##############################################################################
 if [ $stage -le 2 ]; then
     echo "$0: Preparing config files..."
+    # NOTE: Wav2vec 2.0 uses step size of 20 ms.
     gen_config_files.py \
-	--step 0.010 \
-        $FEATS_DIR wav2vec-large configs/tasks $DATA_DIR
+	--step 0.020 \
+        $FEATS_DIR $MODEL_NAME configs/tasks $DATA_DIR
 fi
 
 
