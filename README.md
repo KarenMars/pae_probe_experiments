@@ -1,36 +1,67 @@
 ## Overview
-This repository is the implementation of probing experiments on various recent pre-trained acoustic models:
+This repository contains code for replicating the results from the following paper:
 
-* [wav2vec](https://arxiv.org/pdf/1904.05862.pdf)
-* [vq-wav2vec](https://arxiv.org/pdf/1910.05453.pdf)
-* [Mockingjay](https://arxiv.org/pdf/1910.12638.pdf)
-* [DeCoAR](https://arxiv.org/pdf/1912.01679.pdf)
-* [wav2vec2.0](https://arxiv.org/pdf/2006.11477.pdf)
+- Ma, Danni, Ryant, Neville, and Liberman, Mark. (2021). "Probing acoustic representations for phonetic properties." Proceedings of ICASSP. https://arxiv.org/abs/2010.13007
 
-as well as traditional MFCC and Mel scale filterbank features.
 
-## Prerequisites
-* **Bash** version &ge; 4
-* **Python** version &ge; 3.6
-* If you are _not_ using GPU with CUDA 10.1, you might want to change `torch==1.7.0+cu101` and `mxnet_cu101mkl` in `requirements.txt` to your own CUDA version before installation.
-* Required packages can be installed by running `./install.sh`.
+## Installation
+1. Create and activate a new virtual environment.
+2. Clone the repo:
 
-## Reproducing Experiments
-1. Open `path.sh`, change `*TIMIT_PATH` to the path that your dataset is stored. Open `run_probe_exp.sh`, change `NUM_GPU` to the number of GPUs you have.
-
-2. Each subdirectory in `models/` contains the code for running probing experiments using one kind of acoustic features. Enter `models/${FEATS}/`, follow the instructions in `README.md` (e.g. `models/mockingjay/README.md`). If there is no `README.md` file, simply run `./run.sh` to reproduce the results.
-
-	### How `run.sh` works:
-	Under `models/${FEATS}/`, `run.sh` will first extract acoustic features and store them in `feats/`. If `$FEATS` is a pre-trained acoustic representation, the model checkpoints and related files will be downloaded in `checkpoints/`. Then, `run.sh` will generate configuration files for diffrent tasks, and store them in `configs/tasks/`. Finally, it calls `run_probe_exp.sh` in its grandparent directory to run probing experiments. The results are stored in `logs/`.
+	git clone https://github.com/nryant/pae_probe_experiments.git
+	cd pae_probe_experiments/
 	
-## References
-This is the code repository for the paper [Probing Acoustic Representations for Phonetic Properties](https://arxiv.org/pdf/2010.13007.pdf). If you use the code in your work, please cite
+3. Install the required Python packages:
+
+	pip install -r requirements
+## Preparing the data
+In order to run these experiments, you first need to obtain and process the various TIMIT corpora. Instructions for obtaining the corpora from LDC and running the processing pipeline are contained in `data/README.md`.
+
+## Running the experiments
+In the paper we report results for two conventional (MFCCs and mel filterbanks) acoustic representations and 5 pre-trained acoustic representations:
+
+* [wav2vec](https://arxiv.org/abs/1904.05862)
+* [vq-wav2vec](https://arxiv.org/abs/1910.05453)
+* [Mockingjay](https://arxiv.org/abs/1910.12638)
+* [DeCoAR](https://arxiv.org/abs/1912.01679)
+* [wav2vec2.0](https://arxiv.org/abs/2006.11477)
+
+Code for reproducing our published results for each representation is located under `experiments/`, which contains one sub-directory per representation. To run the experiments, change to the desired directory and follow the instructions in the `README`. When the run is finished, the results (output to STDOUR and STDERR) for each run will be saved to the `logs/` directory.
+
+For instance, to reproduce the results for wav2vec:
+
+	cd experiments/wav2vec
+	./run.sh
+
+This will download the pre-trained [Fairseq](https://github.com/pytorch/fairseq) wav2vec model, extract frame-level features for each TIMIT variant, and run the full set of in-domain and cross-domain experiments for each probing task. Results will be stored to `logs/`; e.g.:
+
+	logs/extract_wav2vec-large_ctimit.stderr
+	logs/extract_wav2vec-large_ctimit.stdout
+	logs/extract_wav2vec-large_ffmtimit.stderr
+	logs/extract_wav2vec-large_ffmtimit.stdout
+	...
+	logs/fricative_logistic.stderr
+	logs/fricative_logistic.stdout
+	logs/fricative_max_margin.stderr
+	logs/fricative_max_margin.stdout
+	...
+
+
+## Reproducibility
+
+Due to differing seeds to the NumPy and Torch RNGs, running the code in this repo will not exactly duplicate the results reported in the ICASSP paper. However, the obtained results should be within 1-2% on average.
+
+## Citing
+If you use the code in your work, please cite the associated ICASSP paper:
 
 ```
-@article{ma2020probing,
-  title={Probing Acoustic Representations for Phonetic Properties},
-  author={Ma, Danni and Ryant, Neville and Liberman, Mark},
-  journal={arXiv preprint arXiv:2010.13007},
-  year={2020}
+@inproceedings{ma2021probing,
+ title={Probing Acoustic Representations for Phonetic Properties},
+ author={Ma, Danni and Ryant, Neville and Liberman, Mark},
+ booktitle={Proceedings of ICASSP},
+ eprint={2010.13007},
+ archivePrefix={arXiv},
+ primaryClass={eess.AS},
+ year={2021}
 }
 ```
