@@ -6,7 +6,7 @@ import sys
 
 import pandas as pd
 from plotnine import (aes, geom_line, ggplot, ggtitle, labs,
-                      scale_color_brewer, scale_color_manual, theme_seaborn, xlab, ylab)
+                      scale_color_brewer, xlab, ylab)
 
 
 FEATS = {'decoar' :'DeCoAR',
@@ -15,18 +15,13 @@ FEATS = {'decoar' :'DeCoAR',
          'mockingjay' : 'MJ',
          'wav2vec-large' : 'wav2vec LARGE',
          'vq-wav2vec_kmeans_roberta' : 'vq-wav2vec + RoBERTa',
-         'wav2vec2.0_960h' : 'wav2vec 2.0 LARGE (LS-960))',
+         'wav2vec2.0_960h' : 'wav2vec 2.0 LARGE (LS-960)',
          'wav2vec2.0_FT' : 'wav2vec 2.0 LARGE (LV-60k + FT)',
          'wav2vec2.0_vox' : 'wav2vec 2.0 LARGE (LV-60k)'}
 
 W2V_FEATS = {'wav2vec 2.0 LARGE (LS-960))',
              'wav2vec 2.0 LARGE (LV-60k + FT)',
              'wav2vec 2.0 LARGE (LV-60k)'}
-
-# These are NOT ideal, but at least more easily distinguished than the defaults
-# or Color Brewer suggestions.
-FEAT_COLORS = ['red', 'cyan', 'orange', 'yellow', 'black',
-               'green', 'blue', 'purple', 'aqua']
 
 
 def plot_explained_variance_by_timit_variant(fig_dir, df):
