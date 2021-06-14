@@ -19,7 +19,7 @@ After obtaining the corpora from LDC, edit the contents of ``config.yaml`` so
 that the paths point to the locations of the corpora on your filesystem. Then,
 run:
 
-    python3 prepare.py
+    python3 prepare_data.py
 
 This will iterate over the corpora, converting the audio files to 16 kHz,
 monochannel WAV and the phones files to HTK labels files.
@@ -27,7 +27,7 @@ monochannel WAV and the phones files to HTK labels files.
 
 Directory structure
 -------------------
-After running ``prepare.py``, you should see the following directory structure:
+After running ``prepare_data.py``, you should see the following directory structure:
 
 - ``ctimit/wav/``  --  CTIMIT WAV files
 - ``ctimit/phones/``  --  CTIMIT phone-level segmentation, stored as HTK label

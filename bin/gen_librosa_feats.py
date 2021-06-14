@@ -59,7 +59,7 @@ def extract_feats(af, feats_dir, sr, feats_fn, add_deltas=False, **kwargs):
     sr : int
        Sample rate (Hz) to resample audio to.
 
-    kwargs
+    kwargs : dict
         Keyword arguments to pass to ``librosa.feature.melspectrogram``.
     """
     x, _ = librosa.core.load(af, sr)
