@@ -11,7 +11,7 @@ which will load a pretrained model located at
 
 apply it to the audio files ``fn1.wav, ``fn2.wav``, ``fn3.wav``, ..., and for
 each recording output frame-level features to a corresponding ``.npy`` file
-located under the directory ``feats_dir``. The flag ``--use_gpu`` instructs
+located under the directory ``feats_dir``. The flag ``--use-gpu`` instructs
 the script to use the GPU, if free.
 
 For each audio file, this script outputs a NumPy ``.npy`` file containing an
