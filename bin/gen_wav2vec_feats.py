@@ -210,7 +210,7 @@ def main():
     args.feats_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine device for computation.
-    use_gpu = args.use_gpu and torch.cuda.is_available()
+    use_gpu = args.use-gpu and torch.cuda.is_available()
     device = 'cuda:0' if use_gpu else 'cpu'
     device = torch.device(device)
 
